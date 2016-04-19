@@ -557,7 +557,7 @@ class Key(object):
                                                    force_http,
                                                    expires_in_absolute,)
 
-    def send_file(self, fp, headers=None, query_args=None, size=None):
+    def send_file(self, fp, headers=None, query_args=None, chunked_transfer=False, size=None):
         """
         Upload a file to a key into a bucket on S3.
 
@@ -598,8 +598,7 @@ class Key(object):
 
         cb=None
         num_cb=10
-        chunked_transfer=False
-
+        
         self._send_file_internal(fp, headers=headers, cb=cb, num_cb=num_cb,
                                  query_args=query_args,
                                  chunked_transfer=chunked_transfer, size=size)
@@ -692,7 +691,8 @@ class Key(object):
                 chunk_len = len(chunk)
                 data_len += chunk_len
                 if chunked_transfer:
-                    http_conn.send('%x;\r\n' % chunk_len)
+                    #http_conn.send('%x;\r\n' % chunk_len)
+                    http_conn.send('%x\r\n' % chunk_len)
                     http_conn.send(chunk)
                     http_conn.send('\r\n')
                 else:
@@ -831,7 +831,7 @@ class Key(object):
             # object.
             server_side_encryption_customer_algorithm = response.getheader(
                 'x-amz-server-side-encryption-customer-algorithm', None)
-            if server_side_encryption_customer_algorithm is None:
+            if server_side_encryption_customer_algorithm is None and not chunked_transfer:
                 if self.etag != '"%s"' % md5:
                     raise provider.storage_data_error(
                         'ETag from S3 did not match computed MD5. '
@@ -882,6 +882,96 @@ class Key(object):
         # the existing interface.
         self.size = data_size
         return (hex_digest, b64_digest)
+
+    def set_contents_from_stream(self, fp, headers=None, replace=True,
+                                 query_args=None,
+                                 size=None):
+        """
+        Store an object using the name of the Key object as the key in
+        cloud and the contents of the data stream pointed to by 'fp' as
+        the contents.
+
+        The stream object is not seekable and total size is not known.
+        This has the implication that we can't specify the
+        Content-Size and Content-MD5 in the header. So for huge
+        uploads, the delay in calculating MD5 is avoided but with a
+        penalty of inability to verify the integrity of the uploaded
+        data.
+
+        :type fp: file
+        :param fp: the file whose contents are to be uploaded
+
+        :type headers: dict
+        :param headers: additional HTTP headers to be sent with the
+            PUT request.
+
+        :type replace: bool
+        :param replace: If this parameter is False, the method will first check
+            to see if an object exists in the bucket with the same key. If it
+            does, it won't overwrite it. The default value is True which will
+            overwrite the object.
+
+        :type cb: function
+        :param cb: a callback function that will be called to report
+            progress on the upload. The callback should accept two integer
+            parameters, the first representing the number of bytes that have
+            been successfully transmitted to GS and the second representing the
+            total number of bytes that need to be transmitted.
+
+        :type num_cb: int
+        :param num_cb: (optional) If a callback is specified with the
+            cb parameter, this parameter determines the granularity of
+            the callback by defining the maximum number of times the
+            callback will be called during the file transfer.
+
+        :type policy: :class:`mssapi.gs.acl.CannedACLStrings`
+        :param policy: A canned ACL policy that will be applied to the new key
+            in GS.
+
+        :type reduced_redundancy: bool
+        :param reduced_redundancy: If True, this will set the storage
+            class of the new Key to be REDUCED_REDUNDANCY. The Reduced
+            Redundancy Storage (RRS) feature of S3, provides lower
+            redundancy at lower storage cost.
+
+        :type size: int
+        :param size: (optional) The Maximum number of bytes to read from
+            the file pointer (fp). This is useful when uploading a
+            file in multiple parts where you are splitting the file up
+            into different ranges to be uploaded. If not specified,
+            the default behaviour is to read all bytes from the file
+            pointer. Less bytes may be available.
+        """
+
+        policy=None
+        reduced_redundancy=False, 
+
+        provider = self.bucket.connection.provider
+        if not provider.supports_chunked_transfer():
+            raise MssapiClientError('%s does not support chunked transfer'
+                % provider.get_provider_name())
+
+        # Name of the Object should be specified explicitly for Streams.
+        if not self.name or self.name == '':
+            raise MssapiClientError('Cannot determine the destination '
+                                'object name for the given stream')
+
+        if headers is None:
+            headers = {}
+        if policy:
+            headers[provider.acl_header] = policy
+
+        if reduced_redundancy:
+            self.storage_class = 'REDUCED_REDUNDANCY'
+            if provider.storage_class_header:
+                headers[provider.storage_class_header] = self.storage_class
+
+        if self.bucket is not None:
+            if not replace:
+                if self.bucket.lookup(self.name):
+                    return
+            self.send_file(fp, headers=headers, query_args=query_args,
+                           chunked_transfer=True, size=size)
 
     def set_contents_from_file(self, fp, headers=None, replace=True,
                                md5=None, query_args=None,
@@ -1016,7 +1106,8 @@ class Key(object):
         if hasattr(fp, 'name'):
             self.path = fp.name
         if self.bucket is not None:
-            if not md5 and provider.supports_chunked_transfer():
+            # if not md5 and provider.supports_chunked_transfer():
+            if not md5 and False:
                 # defer md5 calculation to on the fly and
                 # we don't know anything about size yet.
                 chunked_transfer = True

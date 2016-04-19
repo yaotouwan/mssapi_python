@@ -99,7 +99,8 @@ class Provider(object):
     }
 
     ChunkedTransferSupport = {
-        'aws':    False,
+        # 'aws':    False,
+        'aws':    True,
         'google': True
     }
 

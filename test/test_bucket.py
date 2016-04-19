@@ -85,6 +85,13 @@ b.delete_key( 'aa/bb/dd/sub_key_3' )
 k2 = b.get_key('key_2')
 test_util.assert_eq( k2.name, 'key_2', 'test get_key' )
 
+# test head_key
+head_key = b.head_key('key_2')
+try:
+    b.head_key('key_2222')
+except Exception as e:
+    test_util.assert_true(True, 'test head_key')
+
 #test key in
 res =  'key_1' in b
 test_util.assert_true(res, 'test key in')

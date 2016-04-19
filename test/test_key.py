@@ -79,6 +79,15 @@ cont =  k.get_contents_as_string()
 test_util.assert_eq( cont, '2'*1024,  'test set_contents_from_filename')
 os.remove("file_w2")
 
+# test set_contents_from_stream
+fn = 'chunk_file'
+create_file(fn, '1'*1024*1024*10)
+with open(fn, 'r') as fp:
+    k.set_contents_from_stream(fp)
+cont =  k.get_contents_as_string()
+test_util.assert_eq(cont, '1'*1024*1024*10, 'test set_contents_from_stream')
+os.remove(fn)
+
 #test copy
 b2 = conn.create_bucket('test_bucket_2')
 k2 = k.copy('test_bucket_2', 'key_2')

@@ -176,6 +176,30 @@ class Bucket(object):
         key, resp = self._get_key_internal(key_name, headers, query_args_l)
         return key
 
+    def head_key(self, key_name, headers=None):
+        """
+        Determines if a Key object exists by name.
+
+        If the key object does not exist, an ``S3ResponseError`` will be raised.
+
+        :type key_name: string
+        :param key_name: The name of the Key object
+
+        :type headers: dict
+        :param headers: Additional headers to pass along with the request to
+            AWS.
+
+        :returns: A <Key> object
+        """
+        query_args_l = []
+        key, response = self._get_key_internal(key_name, headers, query_args_l)
+
+        if response.status == 200:
+            return key
+        else:
+            raise self.connection.provider.storage_response_error(
+                response.status, response.reason, response.read())
+
     def _get_key_internal(self, key_name, headers, query_args_l):
         query_args = '&'.join(query_args_l) or None
         response = self.connection.make_request('HEAD', self.name, key_name,
